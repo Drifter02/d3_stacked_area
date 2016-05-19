@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<head>
+<meta charset="utf-8">
+    <style>
+
+    body {
+      font: 10px sans-serif;
+    }
+
+    .axis path,
+    .axis line {
+      fill: none;
+      stroke: #000;
+      shape-rendering: crispEdges;
+    }
+
+    .browser text {
+      text-anchor: end;
+    }
+    ul.menu{
+        padding: 0;
+    }
+    ul.menu li{
+        display: inline;
+        background-color: black;
+        color: white;
+        padding: 10px 20px;
+        text-decoration: none;
+        border-radius: 4px 4px 0 0;
+    }
+    </style>
+</head>
+
+<body>
+    <ul class="menu">
+        <li id="zero"  class="menu-item" onclick="zeroClick(this)">Absolute</li>
+        <li id="expand" class="menu-item" onclick="expClick(this)">Percent</li>
+    </ul>
+    <script type= "text/javascript" src="http://d3js.org/d3.v3.js"></script>
+    <script>
+    /* code adapted from:
+    https://bl.ocks.org/mbostock/3020685
+    */
+
+    var margin = {top: 20, right: 50, bottom: 30, left: 50},
+        width = 860 - margin.left - margin.right,
+        height = 400 - margin.top - margin.bottom;
+
+    var parseDate = d3.time.format("%Y").parse,
+        formatPercent = d3.format(".0%");
+
+    var x = d3.time.scale()
+        .range([0, width]);
+
+    var y = d3.scale.linear()
+        .range([height, 0]);
+
+    var color = d3.scale.category20();
+
+    var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("bottom");
+
+    var yAxis = d3.svg.axis()
+        .scale(y)
+        .orient("left");
+
+    /* Here we define how an area (what represents each country on our chart)
+     * looks like. The x-coordinate is based on date, and the y starts at y0 and
+     * goes up to y0+y. The y0 and y will be created by the stack layout.
+     */ 
+    var area = d3.svg.area()
+        .x(function(d) { return x(d.date); }) 
+        .y0(function(d) { return y(d.y0); })
+        .y1(function(d) { return y(d.y0 + d.y); });
+
+    var stack_expand = d3.layout.stack()
+        .offset("expand")
+        .values(function(d) { return d.values; });
+   
+    var stack_zero = d3.layout.stack()
+        .offset("zero")
+        .values(function(d) { return d.values; });
+
+    var svg = d3.select("body").append("svg")
+        .attr("width", width + margin.left + margin.right)
+        .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+    
+    var stackdata, countries_expand, countries_zero;
+
+
+    d3.csv("data2.csv", function(error, data) {
+      if (error) throw error;
+      
+      stackdata=data;
+
+      color.domain(d3.keys(data[0]).filter(function(key) { return key !== "date"; }));
+
+      data.forEach(function(d) {
+        d.date = parseDate(d.date);
+      });
+      
+      /* Here is where we start to use the stack layout. What it will do for us
+       * is create y0 and y1 coordinates so we can plot the data. Read more 
+       * here: https://github.com/d3/d3/wiki/Stack-Layout
+       * The coordinates will be stored in an array under the key 'values'
+       */
+      countries_expand = stack_expand(color.domain().map(function(name) {
+        return {
+          name: name,
+          values: stackdata.map(function(d) {
+            return {date: d.date, y: +d[name]};
+          })
+        };
+      }));
+      
+      countries_zero = stack_zero(color.domain().map(function(name) {
+        return {
+          name: name,
+          values: stackdata.map(function(d) {
+            return {date: d.date, y: +d[name]};
+          })
+        };
+      }));
+      
+      x.domain(d3.extent(stackdata, function(d) { return d.date; }));
+      y.domain([
+        0,
+        d3.max(countries_expand, function(c) { return d3.max(c.values, function(v) { return v.y0+v.y; }); })
+      ]);
+
+    var country = svg.selectAll(".country")
+          .data(countries_expand)
+          .enter().append("g")
+          .attr("class", "country");
+
+   /* This is where we use the values created with the stack layout
+    * to draw the grap, by passing the values to area, which will in turn
+    * create instructions for drawing the path using a language of path commands.
+    * read more: https://www.w3.org/TR/SVG/paths.html#PathData
+    */
+   country.append("path")
+          .attr("class", "area")
+          .attr("d", function(d) { return area(d.values); }) // here we use the values created by the stack layout
+          .style("fill", function(d) { return color(d.name); });
+
+    country.append("text")
+          .datum(function(d) { return {name: d.name, value: d.values[d.values.length - 1]}; })
+          .attr("transform", function(d) { return "translate(" + x(d.value.date) + "," + y(d.value.y0 + d.value.y / 2) + ")"; })
+          .attr("x", -6)
+          .attr("dy", ".35em")
+          .text(function(d) { return d.name; });
+
+    svg.append("g")
+          .attr("class", "x axis")
+          .attr("transform", "translate(0," + height + ")")
+          .call(xAxis);
+
+    svg.append("g")
+          .attr("class", "y axis")
+          .call(yAxis);
+    });  
+ 
+    // This is the meat of the example, this 
+    function draw(countries){
+    //console.log(countries);
+        // the old y-axis gets removed, no fancy transition
+        d3.select(".y.axis").remove();
+               
+        // compute a new domain for y
+        y.domain([
+            0,
+            d3.max(countries, function(c) { return d3.max(c.values, function(v) { return v.y0+v.y; }); })
+          ]);
+           
+        /* select all countries, bind new data to them (the new data is whatever was passed
+         * as the countries argument to this funciton). Then select all the paths and transition
+         * them to fit the new data 
+         */
+        d3.selectAll(".country")
+          .data(countries)
+          .select("path")
+          .transition()
+          .duration(500)
+          .attr("d", function(d) { return area(d.values); });
+          
+        // add a new y axis (all that has changed is the y.domain)
+        svg.append("g")
+          .attr("class", "y axis")
+          .call(yAxis);
+    }
+        
+    function expClick(elem){
+        // Get all the buttons and set their color to black  
+        var buttons = document.getElementsByClassName("menu-item");
+        for(i = 0; i < buttons.length; ++i){
+            buttons[i].style.backgroundColor="black";
+        }
+
+        // Set the color of the clicked button to orange
+        elem.style.backgroundColor="orange";
+        
+        // draw graph with relative percent areas
+        draw(countries_expand);
+    }
+    
+    function zeroClick(elem){
+        // Get all the buttons and set their color to black  
+        var buttons = document.getElementsByClassName("menu-item");
+        for(i = 0; i < buttons.length; ++i){
+            buttons[i].style.backgroundColor="black";
+        }
+
+        // Set the color of the clicked button to orange
+        elem.style.backgroundColor="orange";
+        
+        // draw graph with absolute areas 
+        draw(countries_zero);
+    }
+</script>
+<h2>Sources:</h2>
+    <ul class="sources">
+        <li><a href="https://bl.ocks.org/mbostock/3020685">D3 Stack area</a></li>
+        <li><a href="http://www2.stat.duke.edu/~mw/ts_data_sets.html">Data</a></li>
+        <li><a href="http://bl.ocks.org/mbostock/4060954">D3 Transitions</a></li>
+    </ul>
+</body>
